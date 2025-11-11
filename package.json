@@ -1,0 +1,26 @@
+{
+  "name": "cronfleet",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "pnpm --filter @cronfleet/api dev",
+    "build:api": "pnpm --filter @cronfleet/api build",
+    "prisma:generate": "pnpm dlx prisma generate",
+    "prisma:migrate": "pnpm dlx prisma migrate dev --name init",
+    "db:studio": "pnpm dlx prisma studio"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.0",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.0"
+  },
+  "overrides": {
+    "@prisma/client": "6.19.0",
+    "prisma": "6.19.0"
+  }
+}
