@@ -1,0 +1,20 @@
+{
+  "name": "@cronfleet/dispatcher",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.0",
+    "bullmq": "^5.63.1",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3"
+  }
+}

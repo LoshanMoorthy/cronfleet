@@ -62,7 +62,7 @@ async function tickOnce(): Promise<number> {
 }
 
 async function main() {
-  console.log("[scheduler] start-once mode");
+  console.log("[scheduler] started");
   let processedTotal = 0;
   while (true) {
     const processed = await tickOnce();

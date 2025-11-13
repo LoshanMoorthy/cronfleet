@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "../../dist/worker",
+    "types": ["node"],
+    "lib": ["ES2022"],
+    "strict": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["../../dist"]
+}
