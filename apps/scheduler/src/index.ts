@@ -1,79 +1,75 @@
-import dotenv from "dotenv";
-import { Prisma, PrismaClient } from "@prisma/client";
-import { nextFireFrom } from "./time";
-
-dotenv.config();
+import "dotenv/config";
+import { PrismaClient } from "@prisma/client";
+import { nextFireFrom } from "./time.js";
 
 const prisma = new PrismaClient();
-const BATCH = 50;
 
-/**
- * Runs one pass: locks due jobs, advances nextAt, writes a 'running' Run.
- * Returns how many items were processed.
- */
-async function tickOnce(): Promise<number> {
-  const due = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const rows = await tx.$queryRaw<
-      { job_id: string; next_at: Date; version: number }[]
-    >`
-      SELECT "jobId" as job_id, "nextAt" as next_at, "version"
-      FROM "JobNextFire"
-      WHERE "nextAt" <= (NOW() AT TIME ZONE 'UTC')
-      ORDER BY "nextAt" ASC
-      LIMIT ${BATCH}
-      FOR UPDATE SKIP LOCKED
-    `;
+async function runOnce() {
+	console.log("[scheduler] tick");
 
-    for (const row of rows) {
-      const job = await tx.job.findUnique({ where: { id: row.job_id } });
-      if (!job || job.paused || !job.scheduleCron) continue;
+	const now = new Date();
 
-      console.log(`[scheduler] dispatch ${job.name} (${job.id}) @ ${row.next_at.toISOString()}`);
+	const due = await prisma.jobNextFire.findMany({
+		where: {
+			nextAt: { lte: now }
+		},
+		include: {
+			job: true
+		},
+		orderBy: {
+			nextAt: "asc"
+		},
+		take: 50
+	});
 
-      let nextAtUtc: Date;
-      try {
-        nextAtUtc = nextFireFrom(job.scheduleCron, job.tz, new Date().toISOString());
-      } catch (e) {
-        console.error(`[scheduler] invalid cron for job ${job.id}:`, e);
-        continue;
-      }
+	if (due.length === 0) {
+		console.log("[scheduler] no due jobs");
+		return;
+	}
 
-      await tx.$executeRaw`
-        UPDATE "JobNextFire"
-        SET "nextAt" = ${nextAtUtc}, "version" = "version" + 1
-        WHERE "jobId" = ${row.job_id} AND "nextAt" = ${row.next_at}
-      `;
+	console.log(`[scheduler] found ${due.length} due jobs`);
 
-      await tx.run.create({
-        data: {
-          jobId: job.id,
-          projectId: job.projectId,
-          triggerAt: row.next_at,
-          status: "running",
-          attempts: 0,
-        },
-      });
-    }
+	for (const row of due) {
+		const job = row.job;
+		if (!job) continue;
 
-    return rows.length;
-  });
+		if (job.paused) {
+			console.log(
+				`[scheduler] skip paused job ${job.name} (${job.id}) scheduled at ${row.nextAt.toISOString()}`
+			);
+			continue;
+		}
 
-  return due;
+		// Create a Run entry
+		const run = await prisma.run.create({
+			data: {
+				jobId: job.id,
+				projectId: job.projectId,
+				triggerAt: new Date(),
+				status: "running" as any,
+				attempts: 0
+			}
+		});
+
+		console.log(`[scheduler] dispatch ${job.name} (${run.id})`);
+
+		const next = nextFireFrom(job.scheduleCron!, job.tz!);
+
+		await prisma.jobNextFire.updateMany({
+			where: {
+				jobId: job.id,
+				nextAt: row.nextAt
+			},
+			data: {
+				nextAt: next,
+				version: { increment: 1 }
+			}
+		});
+	}
+
+	console.log("[scheduler] done");
 }
 
-async function main() {
-  console.log("[scheduler] started");
-  let processedTotal = 0;
-  while (true) {
-    const processed = await tickOnce();
-    processedTotal += processed;
-    if (processed === 0) break;
-  }
-  console.log(`[scheduler] idle (processed ${processedTotal})`);
-  await prisma.$disconnect();
-}
+setInterval(runOnce, 10_000);
 
-main().catch((e) => {
-  console.error("[scheduler] fatal", e);
-  process.exit(1);
-});
+console.log("[scheduler] started (loop every 10s)");

@@ -10,23 +10,12 @@ const connection = {
 	maxRetriesPerRequest: null as any
 };
 
-type DispatchJobPayload = {
-	runId: string;
-	jobId: string;
-	projectId: string;
-	target_url: string | null;
-	method?: string | null;
-	headers?: Record<string, string> | null;
-	body?: unknown;
-	timeout?: number | null;
-};
-
-const jobQueue = new Queue<DispatchJobPayload>("jobs", {
+const queue = new Queue("jobs", {
 	connection
 });
 
-async function main() {
-	console.log("[dispatcher] scanning runs...");
+async function runOnce() {
+	console.log("[dispatcher] tick");
 
 	const runs = await prisma.run.findMany({
 		where: {
@@ -44,19 +33,16 @@ async function main() {
 
 	if (runs.length === 0) {
 		console.log("[dispatcher] no runs to enqueue");
-		process.exit(0);
+		return;
 	}
 
-	console.log(`[dispatcher] enqueueing ${runs.length} runs...`);
+	console.log(`[dispatcher] enqueueing ${runs.length} runs`);
 
 	for (const run of runs) {
 		const job = run.job;
-		if (!job) {
-			console.warn(`[dispatcher] run ${run.id} has no job, skipping`);
-			continue;
-		}
+		if (!job) continue;
 
-		await jobQueue.add(
+		await queue.add(
 			"execute",
 			{
 				runId: run.id,
@@ -64,38 +50,29 @@ async function main() {
 				projectId: run.projectId,
 				target_url: job.targetUrl,
 				method: job.targetMethod,
-				headers: (job.headersJson ?? undefined) as any,
-				body: job.bodyTemplate ?? undefined,
+				headers: job.headersJson as any,
+				body: job.bodyTemplate as any,
 				timeout: job.timeoutMs ?? undefined
 			},
 			{
 				removeOnComplete: 100,
-				removeOnFail: 500,
-				attempts: job.retryMax ?? 3,
-				backoff: {
-					type: "exponential",
-					delay: 2000
-				}
+				removeOnFail: 500
 			}
 		);
+
+		console.log(`[dispatcher] enqueued run ${run.id}`);
 
 		await prisma.run.update({
 			where: { id: run.id },
 			data: {
-				attempts: {
-					increment: 1
-				}
+				attempts: { increment: 1 }
 			}
 		});
-
-		console.log(`[dispatcher] enqueued run ${run.id} for job ${job.id}`);
 	}
 
 	console.log("[dispatcher] done");
-	process.exit(0);
 }
 
-main().catch((err) => {
-	console.error("[dispatcher] fatal", err);
-	process.exit(1);
-});
+setInterval(runOnce, 5_000);
+
+console.log("[dispatcher] started (loop every 5s)");
